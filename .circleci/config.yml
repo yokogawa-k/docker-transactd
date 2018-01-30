@@ -1,0 +1,44 @@
+version: 2
+
+# https://circleci.com/docs/2.0/building-docker-images/
+jobs:
+  build:
+    docker:
+      - image: docker:18.01.0-ce-git
+    steps:
+      - checkout
+      - setup_remote_docker
+      - restore_cache:
+          keys:
+            - v1-{{ .Branch }}
+          paths:
+            - /caches/mysql-transactd.tar
+      - run:
+          name: Load Docker image layer cache
+          command: |
+            set +o pipefail
+            docker load -i /caches/mysql-transactdtar | true
+      - run:
+          name: Build mysql-transactd Docker image
+          command: |
+            docker build --cache-from=mysql-transactd -t yokogawa/mysql-transactd .
+      - run:
+          name: Save Docker image layer cache
+          command: |
+            mkdir -p /caches
+            docker save -o /caches/mysql-transactd.tar yokogawa/mysql-transactd
+      - save_cache:
+          key: v1-{{ .Branch }}-{{ epoch }}
+          paths:
+            - /caches/mysql-transactd.tar
+      - run:
+          name: Run test
+          command: |
+            set -ex
+            # http://www.bizstation.jp/ja/transactd/documents/README.html#test
+            docker run -d --rm -e MYSQL_ALLOW_EMPTY_PASSWORD=yes --name transactd yokogawa/mysql-transactd --character-set-server=utf8 --collation-server=utf8_general_ci --log-bin=mysql-bin --server-id=1
+            sleep 10
+            docker exec -t transactd /root/utility/bin/test_tdclcpp_64m --show_progress=yes --host=localhost --user=root
+            docker exec -t transactd /root/utility/bin/test_tdclcpp_v3_64m --show_progress=yes --host=localhost --user=root
+
+
